@@ -1,13 +1,12 @@
 use std::{rc::Rc, cell::RefCell};
 
-#[allow(unused)]
-struct S1<'a> {
-    s2: Option<&'a Rc<RefCell<S2<'a>>>>,
+struct S1 {
+    s2: Option<Rc<RefCell<S2>>>,
     v1: i32
 }
 
-impl<'a> S1<'a> {
-    fn new(s2: Option<&'a Rc<RefCell<S2<'a>>>>) -> Self {
+impl<'a> S1 {
+    fn new(s2: Option<Rc<RefCell<S2>>>) -> Self {
         Self {
             s2,
             v1: 0,
@@ -17,16 +16,30 @@ impl<'a> S1<'a> {
     fn add(&mut self, val: i32) {
         self.v1 += val;
     }
+
+    fn v1(&self) -> i32 {
+        self.v1
+    }
+
+    fn s2(&self) -> Rc<RefCell<S2>> {
+        match &self.s2 {
+            Some(s2) => Rc::clone(&s2),
+            None => panic!("s2 not Initialized"),
+        }
+    }
+
+    fn v2(&self) -> i32 {
+        self.s2().borrow().v2()
+    }
 }
 
-#[allow(unused)]
-struct S2<'a> {
-    s1: Option<&'a Rc<RefCell<S1<'a>>>>,
+struct S2 {
+    s1: Option<Rc<RefCell<S1>>>,
     v2: i32
 }
 
-impl<'a> S2<'a> {
-    fn new(s1: Option<&'a Rc<RefCell<S1<'a>>>>) -> Self {
+impl S2 {
+    fn new(s1: Option<Rc<RefCell<S1>>>) -> Self {
         Self {
             s1,
             v2: 0,
@@ -36,16 +49,65 @@ impl<'a> S2<'a> {
     fn add(&mut self, val: i32) {
         self.v2 += val;
     }
+
+    fn v2(&self) -> i32 {
+        self.v2
+    }
+
+    fn s1(&self) -> Rc<RefCell<S1>> {
+        match &self.s1 {
+            Some(s1) => Rc::clone(&s1),
+            None => panic!("s1 not Initialized"),
+        }
+    }
+
+    fn v1(&self) -> i32 {
+        self.s1().borrow().v1()
+    }
 }
 
 
+#[allow(unused)]
 fn main() {
-    let mut s1 = S1::new(None);
-    s1.add(-1);
-    let mut s2 = S2::new(None);
-    s2.add(1);
+    let s1 = Rc::new(RefCell::new(S1::new(None)));
+    let s2 = Rc::new(RefCell::new(S2::new(None)));
+    println!("s1.strong_count={} s2.strong_count={}", Rc::strong_count(&s1), Rc::strong_count(&s2));
+    println!("s1.weak_count={} s2.weak_count={}", Rc::weak_count(&s1), Rc::weak_count(&s2));
 
-    println!("s1.v1={} s2.v2={}", s1.v1, s2.v2);
+    s1.borrow_mut().s2 = Some(Rc::clone(&s2));
+    s2.borrow_mut().s1 = Some(Rc::clone(&s1));
+    println!("s1.strong_count={} s2.strong_count={}", Rc::strong_count(&s1), Rc::strong_count(&s2));
+    println!("s1.weak_count={} s2.weak_count={}", Rc::weak_count(&s1), Rc::weak_count(&s2));
+
+    {
+        // Must be a separate lifetime so we don't get a runtime error:
+        //   thread 'main' panicked at 'already borrowed: BorrowMutError', src/main.rs:93:8
+        let s1_borrowed = s1.borrow();
+        let s2_borrowed = s2.borrow();
+
+        let v1 = s2_borrowed.v1();
+        let v2 = s1_borrowed.v2();
+        println!("v1={v1} v2={v2}");
+    }
+
+    s1.borrow_mut().add(1);
+    s2.borrow_mut().add(-1);
+    println!("s1.v1={} s2.v2={}", s1.borrow().v1(), s2.borrow().v2());
+
+    let v1 = s2.borrow().v1();
+    let v2 = s1.borrow().v2();
+    println!("v1={v1} v2={v2}");
+
+    s1.borrow_mut().add(1);
+    s2.borrow_mut().add(-1);
+    println!("s1.v1={} s2.v2={}", s1.borrow().v1(), s2.borrow().v2());
+
+    let v1 = s2.borrow().v1();
+    let v2 = s1.borrow().v2();
+    println!("v1={v1} v2={v2}");
+
+    println!("s1.strong_count={} s2.strong_count={}", Rc::strong_count(&s1), Rc::strong_count(&s2));
+    println!("s1.weak_count={} s2.weak_count={}", Rc::weak_count(&s1), Rc::weak_count(&s2));
 }
 
 #[cfg(test)]
